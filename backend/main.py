@@ -1,91 +1,202 @@
 """
-main.py
--------
-Real-time sign language interpretation.
-Continuously reads webcam frames, detects hand landmarks, predicts the sign
-using a trained model, and overlays the prediction at the bottom of the frame.
+Main application entry point.
 
-Requires model.pkl (created by train_model.py) in the same folder.
+``main.py`` is intentionally thin: it only builds the dependency graph
+(camera, detector, preprocessor, model, visualizer -> Interpreter) and
+wires it either into a FastAPI app or a simple OpenCV preview window.
+All real logic lives in the dedicated modules under ``backend/``.
+
+Usage
+-----
+Manual / development camera-preview mode (opens an OpenCV window):
+
+    python main.py
+
+Manual mode without a preview window (headless, runs until Ctrl+C):
+
+    python main.py --no-preview
+
+FastAPI server mode (frontend can POST /interpreter/start etc.):
+
+    uvicorn backend.main:app --reload
 """
 
+from __future__ import annotations
+
+import argparse
+import logging
+import sys
+import time
+from contextlib import asynccontextmanager
+
 import cv2
-import mediapipe as mp
-import pickle
-import numpy as np
-from collections import deque, Counter
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
-MODEL_PATH = "model.pkl"
+from backend.api.routes import router as interpreter_router
+from backend.api.websocket import router as websocket_router
+from backend.camera.camera import Camera, CameraError
+from backend.config.settings import get_settings
+from backend.hand_detection.detector import HandDetector, HandDetectorError
+from backend.model.mock_model import MockSignLanguageModel
+from backend.pipeline.interpreter import Interpreter
+from backend.preprocessing.preprocessor import Preprocessor
+from backend.utils.logging_config import configure_logging
+from backend.visualization.visualizer import Visualizer
 
-# Load trained model
-with open(MODEL_PATH, "rb") as f:
-    model = pickle.load(f)
+logger = logging.getLogger(__name__)
 
-mp_hands = mp.solutions.hands
-mp_drawing = mp.solutions.drawing_utils
 
-hands = mp_hands.Hands(
-    static_image_mode=False,
-    max_num_hands=1,
-    min_detection_confidence=0.7,
-    min_tracking_confidence=0.7,
-)
+def build_interpreter() -> Interpreter:
+    """Construct the full component graph and return a ready ``Interpreter``.
 
-cap = cv2.VideoCapture(0)
+    This is the single place where concrete implementations are chosen.
+    To use a real ML model later, replace ``MockSignLanguageModel()``
+    with your real model class here — nothing else needs to change.
+    """
+    settings = get_settings()
 
-# Smoothing buffer: only update displayed prediction if it's stable over recent frames
-prediction_buffer = deque(maxlen=10)
-displayed_label = ""
+    camera = Camera(
+        camera_index=settings.camera_index,
+        width=settings.camera_width,
+        height=settings.camera_height,
+        fps=settings.camera_fps,
+        mirror=settings.camera_mirror,
+    )
+    detector = HandDetector(
+        max_num_hands=settings.mp_max_num_hands,
+        min_detection_confidence=settings.mp_min_detection_confidence,
+        min_tracking_confidence=settings.mp_min_tracking_confidence,
+        model_complexity=settings.mp_model_complexity,
+        model_asset_path=settings.hand_landmarker_model_path,
+    )
+    preprocessor = Preprocessor()
+    model = MockSignLanguageModel(confidence_threshold=settings.model_confidence_threshold)
+    visualizer = Visualizer()
 
-while True:
-    ret, frame = cap.read()
-    if not ret:
-        print("Failed to read from camera.")
-        break
-
-    frame = cv2.flip(frame, 1)
-    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    result = hands.process(rgb_frame)
-
-    if result.multi_hand_landmarks:
-        hand_landmarks = result.multi_hand_landmarks[0]
-
-        # Highlight the hand with landmark skeleton
-        mp_drawing.draw_landmarks(
-            frame, hand_landmarks, mp_hands.HAND_CONNECTIONS
-        )
-
-        # Flatten landmarks into feature vector
-        landmarks_flat = []
-        for lm in hand_landmarks.landmark:
-            landmarks_flat.extend([lm.x, lm.y, lm.z])
-
-        features = np.array(landmarks_flat).reshape(1, -1)
-        prediction = model.predict(features)[0]
-        prediction_buffer.append(prediction)
-
-        # Stabilize: show the most common prediction in the recent buffer
-        most_common, count = Counter(prediction_buffer).most_common(1)[0]
-        if count >= 5:  # require some consistency before updating display
-            displayed_label = most_common
-    else:
-        prediction_buffer.clear()
-        displayed_label = ""
-
-    # Draw a bottom banner with the predicted sign
-    h, w, _ = frame.shape
-    banner_height = 60
-    cv2.rectangle(frame, (0, h - banner_height), (w, h), (0, 0, 0), -1)
-    text = displayed_label if displayed_label else "..."
-    cv2.putText(
-        frame, f"Sign: {text}",
-        (10, h - 20),
-        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2
+    return Interpreter(
+        camera=camera,
+        detector=detector,
+        preprocessor=preprocessor,
+        model=model,
+        visualizer=visualizer,
+        target_fps=settings.pipeline_target_fps,
     )
 
-    cv2.imshow("Sign Language Interpreter", frame)
 
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
+# ----------------------------------------------------------------------
+# FastAPI application (Mode 2: frontend-triggered)
+# ----------------------------------------------------------------------
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    settings = get_settings()
+    configure_logging(settings.log_level)
+    logger.info("Starting Sign Language Interpreter API")
 
-cap.release()
-cv2.destroyAllWindows()
+    app.state.interpreter = build_interpreter()
+    try:
+        yield
+    finally:
+        if app.state.interpreter.is_running():
+            app.state.interpreter.stop()
+        logger.info("Sign Language Interpreter API shut down")
+
+
+def create_app() -> FastAPI:
+    app = FastAPI(
+        title="Sign Language Interpreter API",
+        description=(
+            "Backend API for controlling a real-time sign-language "
+            "interpreter pipeline (camera -> hand detection -> "
+            "preprocessing -> ML model -> live feedback)."
+        ),
+        version="1.0.0",
+        lifespan=lifespan,
+    )
+
+    # Permissive CORS so a locally-developed frontend (any origin/port)
+    # can call the API during development. Tighten this for production.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    app.include_router(interpreter_router)
+    app.include_router(websocket_router)
+
+    @app.get("/", tags=["health"])
+    def root() -> dict:
+        return {"status": "ok", "service": "sign-language-interpreter-backend"}
+
+    return app
+
+
+# Module-level ASGI app, used by: uvicorn backend.main:app
+app = create_app()
+
+
+# ----------------------------------------------------------------------
+# Manual mode (Mode 1: run directly with `python main.py`)
+# ----------------------------------------------------------------------
+def run_manual(show_preview: bool = True) -> None:
+    """Run the interpreter directly from the command line.
+
+    If ``show_preview`` is True, an OpenCV window displays the live
+    camera feed with the hand skeleton and prediction overlay; press
+    'Q' to stop safely. Otherwise the interpreter runs headlessly until
+    interrupted with Ctrl+C.
+    """
+    settings = get_settings()
+    configure_logging(settings.log_level)
+    logger.info("Starting Sign Language Interpreter (manual mode)")
+
+    try:
+        interpreter = build_interpreter()
+    except HandDetectorError as exc:
+        logger.error("Failed to initialize hand detector: %s", exc)
+        sys.exit(1)
+
+    try:
+        interpreter.start()
+    except CameraError as exc:
+        logger.error("Failed to start camera: %s", exc)
+        sys.exit(1)
+
+    window_name = "Sign Language Interpreter (dev preview)"
+    try:
+        while interpreter.is_running():
+            if show_preview:
+                frame = interpreter.get_latest_frame()
+                if frame is not None:
+                    cv2.imshow(window_name, frame)
+
+                key = cv2.waitKey(1) & 0xFF
+                if key == ord("q") or key == ord("Q"):
+                    logger.info("Quit key pressed; stopping interpreter")
+                    break
+            else:
+                time.sleep(0.1)
+    except KeyboardInterrupt:
+        logger.info("Interrupted by user; stopping interpreter")
+    finally:
+        interpreter.stop()
+        if show_preview:
+            cv2.destroyAllWindows()
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Sign Language Interpreter backend")
+    parser.add_argument(
+        "--no-preview",
+        action="store_true",
+        help="Run headlessly without opening an OpenCV preview window.",
+    )
+    return parser.parse_args()
+
+
+if __name__ == "__main__":
+    args = _parse_args()
+    run_manual(show_preview=not args.no_preview)

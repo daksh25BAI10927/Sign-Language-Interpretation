@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Environment variables
+.env
+
+# Logs
+*.log
+logs/
+
+# Debug frame dumps
+debug_frames/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Model artifacts (real trained models, added later)
+*.h5
+*.onnx
+*.pt
+*.pkl
+models/*.bin
+
+# Test cache
+.pytest_cache/
+.coverage
+htmlcov/
