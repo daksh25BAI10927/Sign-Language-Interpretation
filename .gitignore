@@ -28,6 +28,7 @@ debug_frames/
 
 # Model artifacts (real trained models, added later)
 *.h5
+!backend/model/modelnet_model.h5
 *.onnx
 *.pt
 *.pkl

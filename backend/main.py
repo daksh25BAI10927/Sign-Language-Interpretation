@@ -38,7 +38,7 @@ from backend.api.websocket import router as websocket_router
 from backend.camera.camera import Camera, CameraError
 from backend.config.settings import get_settings
 from backend.hand_detection.detector import HandDetector, HandDetectorError
-from backend.model.mock_model import MockSignLanguageModel
+from backend.model.image_model import KerasImageSignLanguageModel
 from backend.pipeline.interpreter import Interpreter
 from backend.preprocessing.preprocessor import Preprocessor
 from backend.utils.logging_config import configure_logging
@@ -51,8 +51,9 @@ def build_interpreter() -> Interpreter:
     """Construct the full component graph and return a ready ``Interpreter``.
 
     This is the single place where concrete implementations are chosen.
-    To use a real ML model later, replace ``MockSignLanguageModel()``
-    with your real model class here — nothing else needs to change.
+    The trained image model receives the raw frame and detected hand crop;
+    the interpreter still supports landmark-based models for tests and
+    future alternatives.
     """
     settings = get_settings()
 
@@ -71,7 +72,11 @@ def build_interpreter() -> Interpreter:
         model_asset_path=settings.hand_landmarker_model_path,
     )
     preprocessor = Preprocessor()
-    model = MockSignLanguageModel(confidence_threshold=settings.model_confidence_threshold)
+    model = KerasImageSignLanguageModel(
+        model_path=settings.model_path,
+        labels_path=settings.model_labels_path,
+        confidence_threshold=settings.model_confidence_threshold,
+    )
     visualizer = Visualizer()
 
     return Interpreter(

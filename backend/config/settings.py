@@ -45,7 +45,8 @@ class Settings(BaseSettings):
     hand_landmarker_model_path: str = "backend/hand_detection/models/hand_landmarker.task"
 
     # --- ML model settings ---
-    model_path: Optional[str] = None
+    model_path: Optional[str] = "backend/model/modelnet_model.h5"
+    model_labels_path: Optional[str] = "backend/model/model_labels.txt"
     model_confidence_threshold: float = 0.5
 
     # --- Application / debug settings ---

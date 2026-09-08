@@ -196,8 +196,12 @@ class Interpreter:
             detection = self._detector.detect(frame)
             primary_hand = detection.primary_hand()
 
-            features = self._preprocessor.process(primary_hand)
-            prediction: Prediction = self._model.predict(features)
+            predict_frame = getattr(self._model, "predict_frame", None)
+            if callable(predict_frame):
+                prediction: Prediction = predict_frame(frame, primary_hand)
+            else:
+                features = self._preprocessor.process(primary_hand)
+                prediction = self._model.predict(features)
 
             annotated = self._visualizer.draw(
                 frame,

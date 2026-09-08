@@ -6,16 +6,14 @@ interpreter application. It captures webcam video, detects a hand and its
 preprocesses the landmarks into a feature vector, and feeds that vector
 into a pluggable ML model interface to produce a predicted sign.
 
-This repository intentionally does **not** include:
+This repository includes:
 
 - a frontend (React/HTML/etc.)
-- a trained sign-recognition ML model
-- a model-training pipeline
+- a trained 36-class sign-recognition image model
+- a runtime adapter for the trained Keras model
 
-Instead, it defines a clean `SignLanguageModel` interface with a mock
-implementation, so the rest of the system is fully runnable and testable
-today, and a real model can be dropped in later without touching any
-other code.
+It also retains the clean `SignLanguageModel` interface and mock
+implementation for tests and alternative landmark-based models.
 
 ---
 
@@ -63,7 +61,10 @@ sign-language-interpreter/
 │   │
 │   ├── model/
 │   │   ├── base_model.py        # Abstract SignLanguageModel interface + Prediction type
-│   │   └── mock_model.py        # Deterministic mock predictor (swap for a real model later)
+│   │   ├── image_model.py       # Trained Keras image-model adapter
+│   │   ├── modelnet_model.h5    # Trained 36-class model
+│   │   ├── model_labels.txt     # Output label order
+│   │   └── mock_model.py        # Deterministic test model
 │   │
 │   ├── visualization/
 │   │   └── visualizer.py        # Draws skeleton + status/prediction text onto frames
@@ -135,6 +136,7 @@ and place it at the path above (or point `HAND_LANDMARKER_MODEL_PATH` in
 | `opencv-python` | Camera capture, frame drawing |
 | `mediapipe` | Hand detection & 21-point landmark extraction |
 | `numpy` | Numerical processing of landmarks/features |
+| `tensorflow` | Loads and runs the trained Keras sign model |
 | `fastapi` | REST + WebSocket API |
 | `uvicorn` | ASGI server for FastAPI |
 | `pydantic` / `pydantic-settings` | Data validation, settings management |
@@ -147,7 +149,7 @@ and place it at the path above (or point `HAND_LANDMARKER_MODEL_PATH` in
 ## 5. Running: Manual Mode
 
 Opens an OpenCV preview window with the live camera feed, hand skeleton
-overlay, and mock prediction:
+overlay, and trained-model prediction:
 
 ```bash
 python main.py
@@ -264,45 +266,20 @@ is treated as a normal outcome, not an error, throughout the pipeline.
 
 ---
 
-## 10. Replacing the Mock Model with a Real ML Model
+## 10. Trained Model
 
-1. Create `backend/model/real_model.py`.
-2. Subclass the abstract interface:
+The application loads `backend/model/modelnet_model.h5` and its output
+labels from `backend/model/model_labels.txt` by default. The model was
+trained for 36 classes (`0`-`9` and `a`-`z`) using 224x224 RGB hand images.
 
-   ```python
-   from backend.model.base_model import SignLanguageModel, Prediction
+The hand detector supplies the landmarks used to crop the hand from each
+camera frame. `backend/model/image_model.py` then converts that crop to
+the model's expected RGB tensor and returns the predicted label and
+confidence. The configured paths can be overridden with `MODEL_PATH` and
+`MODEL_LABELS_PATH` in `.env`.
 
-   class RealSignLanguageModel(SignLanguageModel):
-       def __init__(self, model_path: str):
-           # load your TensorFlow / PyTorch / ONNX / scikit-learn model here
-           ...
-
-       def predict(self, features):
-           if features is None:
-               return Prediction(label="No sign detected", confidence=0.0)
-           # run inference, return Prediction(label=..., confidence=...)
-   ```
-
-3. In `backend/main.py`, inside `build_interpreter()`, replace:
-
-   ```python
-   model = MockSignLanguageModel(confidence_threshold=settings.model_confidence_threshold)
-   ```
-
-   with:
-
-   ```python
-   model = RealSignLanguageModel(model_path=settings.model_path)
-   ```
-
-No other file needs to change — the camera, hand detector, preprocessor,
-API, and future frontend are all decoupled from the model implementation.
-
-The feature vector your model receives comes from
-`backend/preprocessing/preprocessor.py`: by default a flattened,
-wrist-centered, scale-normalized array of shape `(63,)` (21 landmarks ×
-x/y/z). Adjust `PreprocessConfig` (e.g. `include_z=False`,
-`flatten=False`) to match whatever input shape your real model expects.
+The mock model remains available for tests and for environments where
+TensorFlow or the trained artifact is not installed.
 
 ---
 
