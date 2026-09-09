@@ -1,0 +1,7 @@
+tests/
+.pytest_cache/
+pytest.ini
+README.md
+LICENSE
+.env.example
+*.md
