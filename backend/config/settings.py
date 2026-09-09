@@ -10,6 +10,7 @@ the box.
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from typing import Optional
 
@@ -42,7 +43,12 @@ class Settings(BaseSettings):
     # Path to the MediaPipe HandLandmarker task-bundle model file
     # (hand_landmarker.task). If the file is missing, HandDetector will
     # attempt to download it automatically from Google's model store.
-    hand_landmarker_model_path: str = "backend/hand_detection/models/hand_landmarker.task"
+    hand_landmarker_model_path: str = os.path.join(
+        os.path.dirname(os.path.dirname(__file__)),
+        "hand_detection",
+        "models",
+        "hand_landmarker.task",
+    )
 
     # --- ML model settings ---
     model_path: Optional[str] = None
