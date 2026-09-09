@@ -16,10 +16,32 @@
 
   /* ---------------- config ---------------- */
 
-  let apiBase = "http://127.0.0.1:8000";
+  const DEFAULT_REMOTE_BACKEND = "https://sign-language-interpretation-tle2-l9q17wrym-daksh25bai10927.vercel.app";
+  const DEFAULT_LOCAL_BACKEND = "http://127.0.0.1:8000";
+
+  function getDefaultApiBase() {
+    const isLocalhost = Boolean(
+      window.location.hostname === "localhost" ||
+      window.location.hostname === "127.0.0.1" ||
+      window.location.hostname === ""
+    );
+    return isLocalhost ? DEFAULT_LOCAL_BACKEND : DEFAULT_REMOTE_BACKEND;
+  }
+
+  let apiBase = (() => {
+    try {
+      const stored = localStorage.getItem("signbridge_api_base");
+      if (stored) return stored.trim().replace(/\/+$/, "");
+    } catch (_) {}
+    return getDefaultApiBase();
+  })();
 
   function wsUrlFromApiBase(base) {
-    return base.replace(/^http/i, "ws").replace(/\/+$/, "") + "/interpreter/ws";
+    const trimmed = base.replace(/\/+$/, "");
+    const wsBase = trimmed.startsWith("https://")
+      ? trimmed.replace(/^https:\/\//i, "wss://")
+      : trimmed.replace(/^http:\/\//i, "ws://");
+    return `${wsBase}/interpreter/ws`;
   }
 
   /* ---------------- backend client layer ---------------- */
@@ -469,6 +491,9 @@
     const value = apiBaseInput.value.trim().replace(/\/+$/, "");
     if (!value) return;
     apiBase = value;
+    try {
+      localStorage.setItem("signbridge_api_base", apiBase);
+    } catch (_) {}
     setApiState("checking");
     setWsState("connecting");
     bootBackendConnection();

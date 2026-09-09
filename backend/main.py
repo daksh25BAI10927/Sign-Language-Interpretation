@@ -114,12 +114,12 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # Permissive CORS so a locally-developed frontend (any origin/port)
-    # can call the API during development. Tighten this for production.
+    # Allow CORS for development and production domains (Render frontend, Vercel backend)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
-        allow_credentials=True,
+        allow_origin_regex=r"https://.*",
+        allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
     )
