@@ -633,11 +633,15 @@ a:hover { text-decoration: underline; }
   overflow: hidden;
 }
 
-.camera-viewport video {
+.camera-viewport video,
+.camera-viewport img {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
+  z-index: 2;
 }
 
 .camera-viewport__empty {
@@ -650,6 +654,12 @@ a:hover { text-decoration: underline; }
   gap: 12px;
   background: linear-gradient(135deg, #1e293b, #0f172a);
   color: var(--text-3);
+  z-index: 1;
+}
+
+.camera-viewport__empty[hidden],
+.camera-viewport__empty.hidden {
+  display: none !important;
 }
 
 .camera-viewport__icon {
@@ -671,6 +681,7 @@ a:hover { text-decoration: underline; }
   gap: 12px;
   padding: 40px 20px 16px;
   background: linear-gradient(0deg, rgba(0,0,0,0.8), transparent);
+  z-index: 3;
 }
 
 .caption__label {

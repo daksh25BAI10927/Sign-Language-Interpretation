@@ -50,7 +50,7 @@
 <div class="settings-drawer" id="settings-panel" hidden>
   <div class="settings-drawer__inner">
     <label for="api-base-input">Backend URL</label>
-    <input id="api-base-input" type="text" value="http://127.0.0.1:8000" spellcheck="false" autocomplete="off" placeholder="http://127.0.0.1:8000" />
+    <input id="api-base-input" type="text" value="" spellcheck="false" autocomplete="off" placeholder="https://your-backend.vercel.app" />
     <button id="settings-apply" type="button" class="btn btn--outline btn--sm">Reconnect</button>
     <p class="settings-drawer__hint">Change if the backend is on a different host/port. WebSocket URL is derived automatically.</p>
   </div>
@@ -87,9 +87,10 @@
     <div class="card card--camera" id="monitor">
       <div class="card__header">
         <h2 class="card__title">📹 Camera Preview</h2>
-        <span class="badge" id="monitor-badge">LOCAL FEED</span>
+        <span class="badge" id="monitor-badge">FEED</span>
       </div>
       <div class="camera-viewport">
+        <img id="stream-img" style="display:none; width:100%; height:100%; object-fit:cover;" alt="Live camera feed" />
         <video id="preview-video" autoplay playsinline muted></video>
         <div class="camera-viewport__empty" id="monitor-empty">
           <div class="camera-viewport__icon">📷</div>
@@ -102,7 +103,7 @@
         </div>
       </div>
       <p class="card__footnote">
-        This is your browser's local camera for framing reference. The backend uses its own server-side camera for predictions.
+        Live camera feed with real-time MediaPipe hand landmark detection & skeleton overlay.
       </p>
     </div>
 

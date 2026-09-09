@@ -81,9 +81,45 @@ def stop_interpreter(request: Request) -> ActionResponse:
     return ActionResponse(success=True, message="Interpreter stopped")
 
 
+import cv2
+import time
+from fastapi.responses import StreamingResponse
+
+
+@router.get("/video_feed")
+def video_feed(request: Request):
+    """Stream live annotated video frames (MJPEG) from the backend interpreter."""
+    interpreter = _get_interpreter(request)
+
+    def frame_generator():
+        while True:
+            if not interpreter.is_running():
+                time.sleep(0.1)
+                continue
+            frame = interpreter.get_latest_frame()
+            if frame is None:
+                time.sleep(0.03)
+                continue
+            ret, jpeg = cv2.imencode(".jpg", frame)
+            if not ret:
+                time.sleep(0.03)
+                continue
+            yield (
+                b"--frame\r\n"
+                b"Content-Type: image/jpeg\r\n\r\n" + jpeg.tobytes() + b"\r\n"
+            )
+            time.sleep(0.03)
+
+    return StreamingResponse(
+        frame_generator(),
+        media_type="multipart/x-mixed-replace; boundary=frame",
+    )
+
+
 @router.get("/status", response_model=StatusResponse)
 def get_status(request: Request) -> StatusResponse:
     """Return the current live status of the interpreter."""
     interpreter = _get_interpreter(request)
     status = interpreter.get_status()
     return StatusResponse(**status.to_dict())
+

@@ -68,7 +68,11 @@ class Camera:
             logger.warning("Camera.start() called but camera is already running")
             return
 
-        capture = cv2.VideoCapture(self._camera_index)
+        import sys
+        if sys.platform.startswith("win"):
+            capture = cv2.VideoCapture(self._camera_index, cv2.CAP_DSHOW)
+        else:
+            capture = cv2.VideoCapture(self._camera_index)
         if not capture.isOpened():
             capture.release()
             raise CameraError(

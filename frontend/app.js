@@ -31,7 +31,18 @@
   let apiBase = (() => {
     try {
       const stored = localStorage.getItem("signbridge_api_base");
-      if (stored) return stored.trim().replace(/\/+$/, "");
+      const isLocalhost = Boolean(
+        window.location.hostname === "localhost" ||
+        window.location.hostname === "127.0.0.1" ||
+        window.location.hostname === ""
+      );
+      if (stored) {
+        const trimmed = stored.trim().replace(/\/+$/, "");
+        // If on HTTPS production, do not use an insecure localhost URL from previous testing
+        if (isLocalhost || (!trimmed.includes("127.0.0.1") && !trimmed.includes("localhost") && trimmed.startsWith("https://"))) {
+          return trimmed;
+        }
+      }
     } catch (_) {}
     return getDefaultApiBase();
   })();
@@ -195,6 +206,9 @@
   const mobileMenuBtn = el("mobile-menu-btn");
   const navLinks      = el("nav-links");
 
+  const streamImg      = el("stream-img");
+  const monitorBadge   = el("monitor-badge");
+
   /* ---------------- UI state helpers ---------------- */
 
   function setLed(node, color) {
@@ -228,10 +242,36 @@
     enableCameraBtn.disabled = interpreterPending || running;
 
     if (running) {
-      monitorEmpty.querySelector("p").textContent =
-        "Browser preview is paused while the interpreter uses this camera.";
-    } else if (!mediaStream) {
-      monitorEmpty.querySelector("p").textContent = "No camera preview active";
+      if (streamImg) {
+        if (!streamImg.src || streamImg.style.display === "none") {
+          streamImg.onerror = () => {
+            console.warn("Live stream image failed to load");
+          };
+          streamImg.src = `${apiBase}/interpreter/video_feed?t=${Date.now()}`;
+        }
+        streamImg.style.display = "block";
+      }
+      video.style.display = "none";
+      monitorEmpty.hidden = true;
+      monitorEmpty.style.setProperty("display", "none", "important");
+      if (monitorBadge) monitorBadge.textContent = "LIVE CAMERA";
+    } else {
+      if (streamImg) {
+        streamImg.removeAttribute("src");
+        streamImg.style.display = "none";
+      }
+      if (mediaStream) {
+        video.style.display = "block";
+        monitorEmpty.hidden = true;
+        monitorEmpty.style.display = "none";
+        if (monitorBadge) monitorBadge.textContent = "LOCAL PREVIEW";
+      } else {
+        video.style.display = "none";
+        monitorEmpty.hidden = false;
+        monitorEmpty.style.display = "flex";
+        monitorEmpty.querySelector("p").textContent = "No camera preview active";
+        if (monitorBadge) monitorBadge.textContent = "IDLE";
+      }
     }
   }
 
@@ -351,7 +391,11 @@
     try {
       mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
       video.srcObject = mediaStream;
+      video.style.display = "block";
+      if (streamImg) streamImg.style.display = "none";
       monitorEmpty.hidden = true;
+      monitorEmpty.style.display = "none";
+      if (monitorBadge) monitorBadge.textContent = "LOCAL PREVIEW";
     } catch (err) {
       monitorEmpty.querySelector("p").textContent =
         err.name === "NotAllowedError"
