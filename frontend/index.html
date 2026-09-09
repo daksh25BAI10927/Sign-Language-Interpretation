@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SignBridge — AI Sign Language Interpreter</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,700;0,9..40,800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- ============ NAVBAR ============ -->
+<nav class="navbar" id="navbar">
+  <div class="navbar__inner">
+    <a href="#" class="navbar__brand">
+      <span class="navbar__logo">🤟</span>
+      <span class="navbar__name">SignBridge</span>
+    </a>
+
+    <div class="navbar__links" id="nav-links">
+      <a href="#dashboard" class="navbar__link">Dashboard</a>
+      <a href="#how-it-works" class="navbar__link">How It Works</a>
+      <a href="#log-section" class="navbar__link">Log</a>
+    </div>
+
+    <div class="navbar__right">
+      <div class="navbar__pills">
+        <button class="status-pill" id="api-chip" type="button" title="Backend API connection">
+          <span class="status-dot" data-led="api"></span>
+          <span>API <span id="api-text" class="status-pill__value">checking</span></span>
+        </button>
+        <button class="status-pill" id="ws-chip" type="button" title="Live status socket">
+          <span class="status-dot" data-led="ws"></span>
+          <span>Live <span id="ws-text" class="status-pill__value">connecting</span></span>
+        </button>
+      </div>
+      <button class="icon-btn" id="settings-btn" type="button" aria-expanded="false" aria-controls="settings-panel" title="Backend settings">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+      <button class="navbar__hamburger" id="mobile-menu-btn" type="button" aria-label="Toggle menu">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<!-- ============ SETTINGS DRAWER ============ -->
+<div class="settings-drawer" id="settings-panel" hidden>
+  <div class="settings-drawer__inner">
+    <label for="api-base-input">Backend URL</label>
+    <input id="api-base-input" type="text" value="http://127.0.0.1:8000" spellcheck="false" autocomplete="off" placeholder="http://127.0.0.1:8000" />
+    <button id="settings-apply" type="button" class="btn btn--outline btn--sm">Reconnect</button>
+    <p class="settings-drawer__hint">Change if the backend is on a different host/port. WebSocket URL is derived automatically.</p>
+  </div>
+</div>
+
+<!-- ============ HERO ============ -->
+<section class="hero" id="hero">
+  <div class="hero__bg-shapes" aria-hidden="true">
+    <div class="hero__circle hero__circle--1"></div>
+    <div class="hero__circle hero__circle--2"></div>
+    <div class="hero__circle hero__circle--3"></div>
+  </div>
+  <div class="hero__content">
+    <div class="hero__badge">✨ AI-Powered Real-Time Interpreter</div>
+    <h1 class="hero__title">Breaking communication barriers <br class="hero__br" />with sign language AI</h1>
+    <p class="hero__subtitle">
+      SignBridge captures hand gestures through your camera, detects hand landmarks in real-time,
+      and translates sign language into text — instantly.
+    </p>
+    <div class="hero__actions">
+      <button id="hero-start-btn" type="button" class="btn btn--primary btn--lg">
+        <span>▶</span> Start Interpreting
+      </button>
+      <a href="#how-it-works" class="btn btn--ghost btn--lg">Learn how it works →</a>
+    </div>
+  </div>
+</section>
+
+<!-- ============ DASHBOARD ============ -->
+<section class="dashboard" id="dashboard">
+  <div class="dashboard__inner">
+
+    <!-- Camera Preview Card -->
+    <div class="card card--camera" id="monitor">
+      <div class="card__header">
+        <h2 class="card__title">📹 Camera Preview</h2>
+        <span class="badge" id="monitor-badge">LOCAL FEED</span>
+      </div>
+      <div class="camera-viewport">
+        <video id="preview-video" autoplay playsinline muted></video>
+        <div class="camera-viewport__empty" id="monitor-empty">
+          <div class="camera-viewport__icon">📷</div>
+          <p>No camera preview active</p>
+          <button id="enable-camera" type="button" class="btn btn--outline btn--sm">Enable Camera</button>
+        </div>
+        <div class="camera-viewport__caption" id="caption-bar">
+          <span class="caption__label" id="caption-label">Interpreter is not running</span>
+          <span class="caption__confidence" id="caption-confidence"></span>
+        </div>
+      </div>
+      <p class="card__footnote">
+        This is your browser's local camera for framing reference. The backend uses its own server-side camera for predictions.
+      </p>
+    </div>
+
+    <!-- Status Panel Card -->
+    <div class="card card--status">
+      <div class="card__header">
+        <h2 class="card__title">📊 Status Dashboard</h2>
+      </div>
+
+      <div class="status-grid">
+        <div class="status-item">
+          <div class="status-item__header">
+            <span class="status-dot" data-led="interpreter"></span>
+            <span class="status-item__label">Interpreter</span>
+          </div>
+          <p class="status-item__value" id="interpreter-value">stopped</p>
+        </div>
+
+        <div class="status-item">
+          <div class="status-item__header">
+            <span class="status-dot" data-led="camera"></span>
+            <span class="status-item__label">Camera</span>
+          </div>
+          <p class="status-item__value" id="camera-value">unknown</p>
+        </div>
+
+        <div class="status-item">
+          <div class="status-item__header">
+            <span class="status-dot" data-led="hand"></span>
+            <span class="status-item__label">Hands</span>
+          </div>
+          <p class="status-item__value" id="hand-value">no hand detected</p>
+          <p class="status-item__sub" id="hand-submeta"></p>
+        </div>
+
+        <div class="status-item status-item--wide">
+          <div class="status-item__header">
+            <span class="status-item__label">Confidence</span>
+          </div>
+          <div class="confidence-bar">
+            <div class="confidence-bar__fill" id="confidence-fill"></div>
+          </div>
+          <p class="status-item__value status-item__value--mono" id="confidence-value">0%</p>
+        </div>
+
+        <div class="status-item">
+          <div class="status-item__header">
+            <span class="status-item__label">Throughput</span>
+          </div>
+          <p class="status-item__value status-item__value--mono" id="fps-value">— fps</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Transport Controls -->
+    <div class="controls-bar">
+      <button id="start-btn" type="button" class="btn btn--primary">
+        <span>▶</span> Start Interpreter
+      </button>
+      <button id="stop-btn" type="button" class="btn btn--danger" disabled>
+        <span>⏹</span> Stop Interpreter
+      </button>
+      <span class="controls-bar__state" id="interpreter-state-text">Stopped</span>
+    </div>
+
+    <!-- Error Banner -->
+    <div class="error-banner" id="error-banner" hidden>
+      <div class="error-banner__content">
+        <span class="error-banner__icon">⚠️</span>
+        <p id="error-text"></p>
+      </div>
+      <button id="retry-btn" type="button" class="btn btn--outline btn--sm">Retry</button>
+    </div>
+
+  </div>
+</section>
+
+<!-- ============ HOW IT WORKS ============ -->
+<section class="features" id="how-it-works">
+  <div class="features__inner">
+    <h2 class="section-title">How It Works</h2>
+    <p class="section-subtitle">Our AI pipeline processes sign language in three simple steps</p>
+    <div class="features__grid">
+      <div class="feature-card">
+        <div class="feature-card__icon">📷</div>
+        <h3>Camera Capture</h3>
+        <p>The backend opens your server-side camera and captures video frames at up to 30 fps using OpenCV.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-card__icon">🤚</div>
+        <h3>Hand Detection</h3>
+        <p>MediaPipe's HandLandmarker detects hands and extracts 21 3D landmark points, drawing a live skeleton overlay.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-card__icon">🧠</div>
+        <h3>Sign Translation</h3>
+        <p>Landmarks are preprocessed into a normalized feature vector and fed into an ML model to predict the sign being made.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ PREDICTION LOG ============ -->
+<section class="log-section" id="log-section">
+  <div class="log-section__inner">
+    <div class="card card--log">
+      <div class="card__header">
+        <h2 class="card__title">📋 Prediction Log</h2>
+        <button id="export-log" type="button" class="btn btn--ghost btn--sm">📥 Export CSV</button>
+      </div>
+      <div class="log-table" id="log-body">
+        <p class="log-table__empty" id="log-empty">Predictions will appear here once the interpreter is running.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FOOTER ============ -->
+<footer class="footer">
+  <div class="footer__inner">
+    <div class="footer__brand">
+      <span class="footer__logo">🤟</span>
+      <div>
+        <strong class="footer__name">SignBridge</strong>
+        <p class="footer__desc">AI-powered sign language interpretation, bridging the gap between sign language and spoken communication.</p>
+      </div>
+    </div>
+    <div class="footer__info">
+      <div class="footer__col">
+        <h4>Technology</h4>
+        <ul>
+          <li>FastAPI + WebSocket</li>
+          <li>OpenCV + MediaPipe</li>
+          <li>Real-time ML Pipeline</li>
+        </ul>
+      </div>
+      <div class="footer__col">
+        <h4>Quick Links</h4>
+        <ul>
+          <li><a href="#dashboard">Dashboard</a></li>
+          <li><a href="#how-it-works">How It Works</a></li>
+          <li><a href="#log-section">Prediction Log</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer__bottom">
+      <button class="footer__about-toggle" id="about-toggle" type="button" aria-expanded="false" aria-controls="about-panel">
+        ℹ️ About this build
+      </button>
+      <div class="footer__about-panel" id="about-panel" hidden>
+        <p>
+          The recognition model wired into the backend right now is a <strong>mock model</strong> for testing the interface —
+          treat every label as a placeholder, not a real translation. Its vocabulary is currently
+          A, B, C, Hello, Thank You, Yes, No.
+        </p>
+        <p>
+          This console reflects only what the backend currently exposes: live status over REST and WebSocket.
+          There's no annotated camera stream, no landmark data, no server-side history, and no accounts —
+          the log on this page lives in your browser tab and clears on reload.
+        </p>
+      </div>
+      <p class="footer__copyright">© 2024 SignBridge — Sign Language Interpreter. Built with ❤️ and AI.</p>
+    </div>
+  </div>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
