@@ -14,9 +14,11 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from collections import Counter, deque
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
+import cv2
 import numpy as np
 
 from backend.camera.camera import Camera, CameraError
@@ -26,6 +28,12 @@ from backend.preprocessing.preprocessor import Preprocessor
 from backend.visualization.visualizer import Visualizer
 
 logger = logging.getLogger(__name__)
+
+# --- ML Fix 2: Temporal smoothing config ---
+_SMOOTH_WINDOW = 7       # frames to majority-vote over — eliminates single-frame flicker
+
+# --- FPS Fix 3: JPEG pre-encode quality ---
+_JPEG_QUALITY = 70       # 70 is visually fine and ~50% smaller than default (~95)
 
 
 class InterpreterError(RuntimeError):
@@ -96,6 +104,11 @@ class Interpreter:
 
         self._frame_lock = threading.Lock()
         self._latest_annotated_frame: Optional[np.ndarray] = None
+        # FPS Fix 3: pre-encoded JPEG bytes stored alongside the raw frame
+        self._latest_jpeg: Optional[bytes] = None
+
+        # ML Fix 2: rolling buffer for temporal smoothing
+        self._prediction_buffer: deque[str] = deque(maxlen=_SMOOTH_WINDOW)
 
     # ------------------------------------------------------------------
     # Public API
@@ -149,7 +162,9 @@ class Interpreter:
             self._status = InterpreterStatus(running=False)
         with self._frame_lock:
             self._latest_annotated_frame = None
+            self._latest_jpeg = None
 
+        self._prediction_buffer.clear()
         logger.info("Interpreter stopped")
 
     def is_running(self) -> bool:
@@ -166,6 +181,15 @@ class Interpreter:
             if self._latest_annotated_frame is None:
                 return None
             return self._latest_annotated_frame.copy()
+
+    def get_latest_jpeg(self) -> Optional[bytes]:
+        """Return the most recent annotated frame pre-encoded as JPEG bytes.
+
+        Avoids re-encoding on every HTTP request — the encoding is done
+        once per frame inside the interpreter loop (FPS Fix 3).
+        """
+        with self._frame_lock:
+            return self._latest_jpeg
 
     # ------------------------------------------------------------------
     # Internal
@@ -199,14 +223,30 @@ class Interpreter:
             features = self._preprocessor.process(primary_hand)
             prediction: Prediction = self._model.predict(features)
 
+            # --- ML Fix 2: Temporal smoothing via majority vote ---
+            self._prediction_buffer.append(prediction.label)
+            smoothed_label = Counter(self._prediction_buffer).most_common(1)[0][0]
+            smoothed_prediction = Prediction(
+                label=smoothed_label,
+                confidence=prediction.confidence,
+            )
+
             annotated = self._visualizer.draw(
                 frame,
                 detection=detection,
-                prediction=prediction,
+                prediction=smoothed_prediction,
                 extra_status_lines=["Camera Running"],
             )
+
+            # --- FPS Fix 3: Pre-encode JPEG once per frame at quality=70 ---
+            ret, jpeg_buf = cv2.imencode(
+                ".jpg", annotated, [cv2.IMWRITE_JPEG_QUALITY, _JPEG_QUALITY]
+            )
+            jpeg_bytes = jpeg_buf.tobytes() if ret else None
+
             with self._frame_lock:
                 self._latest_annotated_frame = annotated
+                self._latest_jpeg = jpeg_bytes
 
             if self._on_frame is not None:
                 try:
@@ -228,16 +268,16 @@ class Interpreter:
                     hand_detected=detection.hand_detected,
                     hand_count=detection.hand_count,
                     handedness=primary_hand.handedness if primary_hand else "Unknown",
-                    prediction=prediction.label,
-                    confidence=prediction.confidence,
+                    prediction=smoothed_prediction.label,
+                    confidence=smoothed_prediction.confidence,
                     fps=current_fps,
                 )
 
             if detection.hand_detected:
                 logger.debug(
                     "Hand detected -> Prediction: %s (%.2f)",
-                    prediction.label,
-                    prediction.confidence,
+                    smoothed_prediction.label,
+                    smoothed_prediction.confidence,
                 )
 
             # Simple frame-rate pacing so the loop doesn't spin faster

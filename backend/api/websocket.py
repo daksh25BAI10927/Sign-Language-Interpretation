@@ -24,7 +24,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # How often to push a status update to connected clients.
-_PUSH_INTERVAL_SECONDS = 0.1  # 10 updates/sec
+# FPS Fix 4: Doubled from 0.1s (10 Hz) to 0.05s (20 Hz) for smoother
+# confidence bar and FPS counter updates on the frontend.
+_PUSH_INTERVAL_SECONDS = 0.05  # 20 updates/sec
 
 
 @router.websocket("/interpreter/ws")

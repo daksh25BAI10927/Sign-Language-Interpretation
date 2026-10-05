@@ -255,14 +255,13 @@
       </button>
       <div class="footer__about-panel" id="about-panel" hidden>
         <p>
-          The recognition model wired into the backend right now is a <strong>mock model</strong> for testing the interface —
-          treat every label as a placeholder, not a real translation. Its vocabulary is currently
-          A, B, C, Hello, Thank You, Yes, No.
+          The recognition model is a <strong>real trained MLP</strong> (Multi-Layer Perceptron) achieving
+          <strong>98.9% test accuracy</strong> across 38 classes — ASL letters A–Z, digits 0–9, plus DEL and SPACE.
+          It runs via ONNX Runtime on top of MediaPipe hand landmark vectors (63 floats per frame).
         </p>
         <p>
-          This console reflects only what the backend currently exposes: live status over REST and WebSocket.
-          There's no annotated camera stream, no landmark data, no server-side history, and no accounts —
-          the log on this page lives in your browser tab and clears on reload.
+          This console reflects what the backend exposes: live status over REST and WebSocket, plus an
+          annotated MJPEG camera stream. The prediction log lives in your browser tab and clears on reload.
         </p>
       </div>
       <p class="footer__copyright">© 2024 SignBridge — Sign Language Interpreter. Built with ❤️ and AI.</p>

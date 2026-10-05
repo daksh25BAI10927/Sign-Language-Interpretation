@@ -81,39 +81,53 @@ def stop_interpreter(request: Request) -> ActionResponse:
     return ActionResponse(success=True, message="Interpreter stopped")
 
 
-import cv2
 import time
 from fastapi.responses import StreamingResponse
 
 
 @router.get("/video_feed")
 def video_feed(request: Request):
-    """Stream live annotated video frames (MJPEG) from the backend interpreter."""
+    """Stream live annotated video frames (MJPEG) from the backend interpreter.
+
+    FPS Fix 1: The generator no longer has a hardcoded time.sleep(0.03)
+    (which was capping the stream at ~33 fps regardless of actual processing
+    speed). Instead it polls until a *new* frame arrives using object-id
+    comparison, then yields immediately.
+
+    FPS Fix 2: Frames are consumed as pre-encoded JPEG bytes produced by the
+    interpreter loop (quality=70) — no redundant cv2.imencode() call here.
+    """
     interpreter = _get_interpreter(request)
 
     def frame_generator():
+        last_frame_id: int | None = None
         while True:
             if not interpreter.is_running():
-                time.sleep(0.1)
+                time.sleep(0.05)
                 continue
-            frame = interpreter.get_latest_frame()
-            if frame is None:
-                time.sleep(0.03)
+
+            jpeg = interpreter.get_latest_jpeg()
+            if jpeg is None:
+                time.sleep(0.01)
                 continue
-            ret, jpeg = cv2.imencode(".jpg", frame)
-            if not ret:
-                time.sleep(0.03)
+
+            frame_id = id(jpeg)
+            if frame_id == last_frame_id:
+                # No new frame yet — tiny sleep to avoid busy-spin
+                time.sleep(0.005)
                 continue
+
+            last_frame_id = frame_id
             yield (
                 b"--frame\r\n"
-                b"Content-Type: image/jpeg\r\n\r\n" + jpeg.tobytes() + b"\r\n"
+                b"Content-Type: image/jpeg\r\n\r\n" + jpeg + b"\r\n"
             )
-            time.sleep(0.03)
 
     return StreamingResponse(
         frame_generator(),
         media_type="multipart/x-mixed-replace; boundary=frame",
     )
+
 
 
 @router.get("/status", response_model=StatusResponse)

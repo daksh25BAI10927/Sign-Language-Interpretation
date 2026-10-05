@@ -51,8 +51,21 @@ class Settings(BaseSettings):
     )
 
     # --- ML model settings ---
-    model_path: Optional[str] = None
-    model_confidence_threshold: float = 0.5
+    # Path to the trained ONNX model file produced by scripts/train_model.py
+    model_onnx_path: str = os.path.join(
+        os.path.dirname(os.path.dirname(__file__)),
+        "model",
+        "sign_model.onnx",
+    )
+    # Path to the JSON label list produced by scripts/train_model.py
+    model_labels_path: str = os.path.join(
+        os.path.dirname(os.path.dirname(__file__)),
+        "model",
+        "labels.json",
+    )
+    model_confidence_threshold: float = 0.6
+    # Set to False to keep using MockSignLanguageModel even if the ONNX file exists
+    use_real_model: bool = True
 
     # --- Application / debug settings ---
     debug: bool = False

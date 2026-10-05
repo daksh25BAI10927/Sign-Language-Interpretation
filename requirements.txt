@@ -1,5 +1,6 @@
+# --- Backend runtime dependencies ---
 opencv-python-headless>=4.9.0
-mediapipe>=0.10.14
+mediapipe>=1.0.0
 numpy>=1.26.0
 fastapi>=0.111.0
 uvicorn[standard]>=0.29.0
@@ -7,5 +8,13 @@ pydantic>=2.7.0
 pydantic-settings>=2.2.1
 python-dotenv>=1.0.1
 websockets>=12.0
+onnxruntime>=1.18.0
+
+# --- Testing ---
 pytest>=8.2.0
 httpx>=0.27.0
+
+# --- Dev / training (Python 3.12 only, not needed at runtime) ---
+# tensorflow  (install separately: py -3.12 -m pip install tensorflow)
+# tf2onnx     (install separately: py -3.12 -m pip install tf2onnx)
+# scikit-learn, matplotlib, seaborn, pandas, tqdm  (training deps)

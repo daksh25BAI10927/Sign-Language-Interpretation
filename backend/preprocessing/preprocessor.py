@@ -33,6 +33,7 @@ class PreprocessConfig:
     scale_normalize: bool = True
     include_z: bool = True
     flatten: bool = True
+    mirror_left_hand: bool = True  # flip x for Left hands → right-hand model works for both
 
 
 class Preprocessor:
@@ -53,6 +54,12 @@ class Preprocessor:
             is ``None`` or malformed (missing landmarks). Returning
             ``None`` lets downstream code cleanly represent "no hand"
             instead of feeding zeros into the model.
+
+        Notes:
+            When ``mirror_left_hand`` is enabled (the default), left-hand
+            landmarks are mirrored along the x-axis *before* wrist-centring
+            and scale normalisation. This lets a model trained exclusively
+            on right-hand data classify signs made with either hand.
         """
         if hand is None:
             return None
@@ -69,6 +76,11 @@ class Preprocessor:
             [[lm.x, lm.y, lm.z] for lm in hand.landmarks],
             dtype=np.float32,
         )  # shape: (21, 3)
+
+        # --- ML Fix 1: Mirror left-hand x so the right-hand model works for both ---
+        if self._config.mirror_left_hand and hand.handedness == "Left":
+            coords[:, 0] = 1.0 - coords[:, 0]
+            logger.debug("Left hand detected — x-axis mirrored for right-hand model")
 
         if self._config.center_on_wrist:
             wrist = coords[WRIST_INDEX].copy()

@@ -71,7 +71,44 @@ def build_interpreter() -> Interpreter:
         model_asset_path=settings.hand_landmarker_model_path,
     )
     preprocessor = Preprocessor()
-    model = MockSignLanguageModel(confidence_threshold=settings.model_confidence_threshold)
+
+    # --- Model selection: real (ONNX) if trained, else mock ---
+    import os as _os
+    from pathlib import Path as _Path
+    _onnx_path = _Path(settings.model_onnx_path)
+    _labels_path = _Path(settings.model_labels_path)
+
+    if (
+        settings.use_real_model
+        and _onnx_path.exists()
+        and _labels_path.exists()
+    ):
+        try:
+            from backend.model.real_model import RealSignLanguageModel
+            model = RealSignLanguageModel(
+                model_path=_onnx_path,
+                labels_path=_labels_path,
+                confidence_threshold=settings.model_confidence_threshold,
+            )
+            logger.info("Using RealSignLanguageModel (ONNX: %s)", _onnx_path)
+        except Exception as exc:
+            logger.warning(
+                "Failed to load RealSignLanguageModel (%s); falling back to mock.", exc
+            )
+            model = MockSignLanguageModel(
+                confidence_threshold=settings.model_confidence_threshold
+            )
+    else:
+        if settings.use_real_model:
+            logger.info(
+                "ONNX model not found at '%s' — using MockSignLanguageModel. "
+                "Run scripts/train_model.py to train the real model.",
+                _onnx_path,
+            )
+        model = MockSignLanguageModel(
+            confidence_threshold=settings.model_confidence_threshold
+        )
+
     visualizer = Visualizer()
 
     return Interpreter(
