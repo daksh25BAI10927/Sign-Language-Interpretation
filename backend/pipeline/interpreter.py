@@ -30,7 +30,8 @@ from backend.visualization.visualizer import Visualizer
 logger = logging.getLogger(__name__)
 
 # --- ML Fix 2: Temporal smoothing config ---
-_SMOOTH_WINDOW = 7       # frames to majority-vote over — eliminates single-frame flicker
+_SMOOTH_WINDOW = 15      # frames to vote over — wider window = more stable output
+_MIN_VOTE_FRAC = 0.40    # label must win ≥40% of weighted votes to be displayed
 
 # --- FPS Fix 3: JPEG pre-encode quality ---
 _JPEG_QUALITY = 70       # 70 is visually fine and ~50% smaller than default (~95)
@@ -107,8 +108,8 @@ class Interpreter:
         # FPS Fix 3: pre-encoded JPEG bytes stored alongside the raw frame
         self._latest_jpeg: Optional[bytes] = None
 
-        # ML Fix 2: rolling buffer for temporal smoothing
-        self._prediction_buffer: deque[str] = deque(maxlen=_SMOOTH_WINDOW)
+        # ML Fix 2: rolling buffer of (label, confidence) for weighted temporal smoothing
+        self._prediction_buffer: deque[tuple[str, float]] = deque(maxlen=_SMOOTH_WINDOW)
 
     # ------------------------------------------------------------------
     # Public API
@@ -223,11 +224,15 @@ class Interpreter:
             features = self._preprocessor.process(primary_hand)
             prediction: Prediction = self._model.predict(features)
 
-            # --- ML Fix 2: Temporal smoothing via majority vote ---
-            self._prediction_buffer.append(prediction.label)
-            smoothed_label = Counter(self._prediction_buffer).most_common(1)[0][0]
+            # --- ML Fix 2: Confidence-weighted temporal smoothing ---
+            self._prediction_buffer.append((prediction.label, prediction.confidence))
+            # Sum confidence scores per label — high-confidence frames vote harder
+            label_weights: dict[str, float] = {}
+            for lbl, conf in self._prediction_buffer:
+                label_weights[lbl] = label_weights.get(lbl, 0.0) + max(conf, 0.1)
+            best_label = max(label_weights, key=label_weights.__getitem__)
             smoothed_prediction = Prediction(
-                label=smoothed_label,
+                label=best_label,
                 confidence=prediction.confidence,
             )
 

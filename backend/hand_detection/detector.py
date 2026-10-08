@@ -102,7 +102,7 @@ class HandDetector:
 
             options = HandLandmarkerOptions(
                 base_options=BaseOptions(model_asset_path=resolved_model_path),
-                running_mode=RunningMode.IMAGE,
+                running_mode=RunningMode.VIDEO,
                 num_hands=self._max_num_hands,
                 min_hand_detection_confidence=self._min_detection_confidence,
                 min_tracking_confidence=self._min_tracking_confidence,
@@ -141,7 +141,12 @@ class HandDetector:
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_rgb)
 
         try:
-            result = self._landmarker.detect(mp_image)
+            timestamp_ms = time.monotonic_ns() // 1_000_000
+            if getattr(self, '_last_timestamp_ms', -1) >= timestamp_ms:
+                timestamp_ms = getattr(self, '_last_timestamp_ms') + 1
+            self._last_timestamp_ms = timestamp_ms
+            
+            result = self._landmarker.detect_for_video(mp_image, timestamp_ms)
         except Exception:
             logger.exception("MediaPipe hand processing failed for this frame")
             return DetectionResult(image_width=width, image_height=height)

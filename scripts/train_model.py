@@ -42,9 +42,13 @@ import tf2onnx
 # ------------------------------------------------------------------ #
 
 LANDMARKS_CSV    = Path("data/landmarks_dataset.csv")
-MODEL_ONNX_PATH  = Path("backend/model/sign_model.onnx")
-LABELS_JSON_PATH = Path("backend/model/labels.json")
-REPORT_PNG_PATH  = Path("data/training_report.png")
+
+# Output paths — written directly to the model files folder used by the backend
+_MODEL_FILES     = Path(r"E:\Github\model files")
+MODEL_ONNX_PATH  = _MODEL_FILES / "sign_model.onnx"
+LABELS_JSON_PATH = _MODEL_FILES / "labels.json"
+REPORT_PNG_PATH  = _MODEL_FILES / "training_report.png"
+CHECKPOINT_PATH  = Path("data/best_model_checkpoint.keras")
 
 EPOCHS           = 150
 BATCH_SIZE       = 128
@@ -93,37 +97,67 @@ def load_data():
 #  DATA AUGMENTATION  (ML Fix 3)                                       #
 # ------------------------------------------------------------------ #
 
+def _rotate_landmarks(X: np.ndarray, angles_deg: np.ndarray) -> np.ndarray:
+    """Rotate the x,y of each 21-landmark vector by a per-sample angle."""
+    out = X.copy()
+    for i, angle in enumerate(angles_deg):
+        rad = np.deg2rad(angle)
+        cos_a, sin_a = np.cos(rad), np.sin(rad)
+        coords = out[i].reshape(21, 3)
+        x_new = coords[:, 0] * cos_a - coords[:, 1] * sin_a
+        y_new = coords[:, 0] * sin_a + coords[:, 1] * cos_a
+        coords[:, 0] = x_new
+        coords[:, 1] = y_new
+        out[i] = coords.flatten()
+    return out
+
+
+def _dropout_landmarks(X: np.ndarray, rng, drop_prob: float = 0.10) -> np.ndarray:
+    """Zero-out random landmarks to simulate partial occlusion."""
+    out = X.copy().reshape(-1, 21, 3)
+    mask = rng.random((out.shape[0], 21)) < drop_prob
+    out[mask] = 0.0
+    return out.reshape(-1, 63)
+
+
 def augment_landmarks(X: np.ndarray, y: np.ndarray):
-    """Augment landmark feature vectors to improve generalization.
+    """Augment landmark vectors → 5x dataset size.
 
-    Applies two lightweight transforms to every sample and concatenates
-    the results with the originals — effectively tripling the dataset
-    without any extra data collection:
-
-    * Gaussian noise  — simulates sensor jitter and small finger wiggles.
-    * Scale jitter    — simulates different hand sizes and camera distances.
+    Passes applied to training data only:
+      1. Original
+      2. Gaussian noise  (σ=0.01) — sensor jitter / small wiggles
+      3. Scale jitter    (±10%)   — different hand sizes / distances
+      4. Random rotation (±15°)   — tilted or rotated hands
+      5. Landmark dropout (10%)   — simulates partial occlusion
 
     Args:
-        X: Feature matrix of shape (N, 63).
-        y: Integer label array of shape (N,).
+        X: Feature matrix (N, 63).
+        y: Integer labels (N,).
 
     Returns:
-        (X_augmented, y_augmented) with 3x the original number of rows.
+        (X_aug, y_aug) with 5× the original rows.
     """
     rng = np.random.default_rng(seed=42)
 
-    # Pass 1: Gaussian noise (sigma = 0.01 -- roughly 1% of normalized coords)
+    # Pass 2: Gaussian noise
     noise = rng.normal(0.0, 0.01, X.shape).astype(np.float32)
     X_noisy = X + noise
 
-    # Pass 2: Random scale jitter +/-10%
+    # Pass 3: Scale jitter ±10%
     scale = rng.uniform(0.90, 1.10, (X.shape[0], 1)).astype(np.float32)
     X_scaled = X * scale
 
-    X_aug = np.vstack([X, X_noisy, X_scaled])
-    y_aug = np.concatenate([y, y, y])
+    # Pass 4: Random rotation ±15°
+    angles = rng.uniform(-15.0, 15.0, X.shape[0])
+    X_rotated = _rotate_landmarks(X.copy(), angles).astype(np.float32)
+
+    # Pass 5: Landmark dropout
+    X_dropped = _dropout_landmarks(X, rng, drop_prob=0.10).astype(np.float32)
+
+    X_aug = np.vstack([X, X_noisy, X_scaled, X_rotated, X_dropped])
+    y_aug = np.concatenate([y, y, y, y, y])
     log.info(
-        "Augmentation: %d original -> %d total samples (noise + scale jitter)",
+        "Augmentation: %d original → %d total (noise + scale + rotation + dropout)",
         len(X), len(X_aug),
     )
     return X_aug, y_aug
@@ -217,7 +251,7 @@ def train(X, y, labels):
             verbose=1,
         ),
         callbacks.ModelCheckpoint(
-            filepath="data/best_model_checkpoint.keras",
+            filepath=str(CHECKPOINT_PATH),
             monitor="val_accuracy",
             save_best_only=True,
             verbose=0,
@@ -307,25 +341,41 @@ def evaluate_and_plot(model, history, X_test, y_test, labels):
 # ------------------------------------------------------------------ #
 
 def export_onnx(model, input_dim: int):
+    """Convert the trained Keras model to ONNX via SavedModel + tf2onnx CLI.
+
+    tf2onnx.convert.from_keras() doesn't support Keras 3.x (shipped with
+    TF 2.16+). Workaround: export to TF SavedModel first, then convert
+    using the tf2onnx CLI (python -m tf2onnx.convert --saved-model ...).
     """
-    Convert the trained Keras model to ONNX format.
-    ONNX can be loaded by onnxruntime on any Python version (incl. 3.14),
-    removing the TensorFlow dependency from the backend at inference time.
-    """
+    import shutil
+    import subprocess
+
+    saved_model_dir = Path("data/saved_model_temp")
     MODEL_ONNX_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-    input_signature = [
-        tf.TensorSpec(shape=(None, input_dim), dtype=tf.float32, name="landmarks")
-    ]
+    # Step 1: export Keras model → TF SavedModel
+    if saved_model_dir.exists():
+        shutil.rmtree(saved_model_dir)
+    log.info("Saving as TF SavedModel → %s ...", saved_model_dir)
+    model.export(str(saved_model_dir))
 
-    log.info("Exporting model to ONNX → %s", MODEL_ONNX_PATH)
-    model_proto, _ = tf2onnx.convert.from_keras(
-        model,
-        input_signature=input_signature,
-        opset=13,
-        output_path=str(MODEL_ONNX_PATH),
+    # Step 2: convert SavedModel → ONNX via CLI
+    log.info("Converting to ONNX → %s ...", MODEL_ONNX_PATH)
+    result = subprocess.run(
+        [sys.executable, "-m", "tf2onnx.convert",
+         "--saved-model", str(saved_model_dir),
+         "--output", str(MODEL_ONNX_PATH),
+         "--opset", "13"],
+        capture_output=True, text=True,
     )
-    log.info("ONNX export complete. Model size: %.1f MB",
+    if result.returncode != 0:
+        log.error("tf2onnx CLI failed:\n%s", result.stderr)
+        raise RuntimeError("ONNX export failed — see error above")
+
+    # Cleanup temp SavedModel
+    shutil.rmtree(saved_model_dir, ignore_errors=True)
+
+    log.info("ONNX export complete. Model size: %.2f MB",
              MODEL_ONNX_PATH.stat().st_size / 1e6)
 
 
