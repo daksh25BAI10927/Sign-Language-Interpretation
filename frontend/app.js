@@ -25,7 +25,11 @@
       window.location.hostname === "127.0.0.1" ||
       window.location.hostname === ""
     );
-    return isLocalhost ? DEFAULT_LOCAL_BACKEND : DEFAULT_REMOTE_BACKEND;
+    if (isLocalhost) return DEFAULT_LOCAL_BACKEND;
+    if (window.location.origin && !window.location.origin.includes("vercel.app")) {
+      return window.location.origin;
+    }
+    return DEFAULT_REMOTE_BACKEND;
   }
 
   let apiBase = (() => {

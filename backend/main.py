@@ -29,9 +29,11 @@ import sys
 import time
 from contextlib import asynccontextmanager
 
+from pathlib import Path
 import cv2
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 
 from backend.api.routes import router as interpreter_router
 from backend.api.websocket import router as websocket_router
@@ -130,12 +132,26 @@ async def lifespan(app: FastAPI):
     configure_logging(settings.log_level)
     logger.info("Starting Sign Language Interpreter API")
 
-    app.state.interpreter = build_interpreter()
+    app.state.interpreter = None
+    app.state.init_error = None
+    try:
+        app.state.interpreter = build_interpreter()
+        logger.info("Sign Language Interpreter pipeline initialized successfully")
+    except Exception as exc:
+        logger.error(
+            "Interpreter initialization deferred or failed: %s. "
+            "Server will start with API/status endpoints operational.",
+            exc,
+            exc_info=True,
+        )
+        app.state.init_error = str(exc)
+
     try:
         yield
     finally:
-        if app.state.interpreter.is_running():
-            app.state.interpreter.stop()
+        interpreter = getattr(app.state, "interpreter", None)
+        if interpreter is not None and interpreter.is_running():
+            interpreter.stop()
         logger.info("Sign Language Interpreter API shut down")
 
 
@@ -164,9 +180,36 @@ def create_app() -> FastAPI:
     app.include_router(interpreter_router)
     app.include_router(websocket_router)
 
+    frontend_dir = Path(__file__).resolve().parent.parent / "frontend"
+
+    @app.get("/health", tags=["health"])
+    def health() -> dict:
+        interpreter = getattr(app.state, "interpreter", None)
+        return {
+            "status": "ok",
+            "service": "sign-language-interpreter-backend",
+            "interpreter_ready": interpreter is not None,
+            "error": getattr(app.state, "init_error", None),
+        }
+
     @app.get("/", tags=["health"])
-    def root() -> dict:
+    def root(request: Request):
+        accept = request.headers.get("accept", "")
+        # When accessed directly from a browser, serve the frontend HTML
+        if "text/html" in accept and frontend_dir.is_dir():
+            index_path = frontend_dir / "index.html"
+            if index_path.exists():
+                return FileResponse(index_path)
         return {"status": "ok", "service": "sign-language-interpreter-backend"}
+
+    if frontend_dir.is_dir():
+        @app.get("/style.css", include_in_schema=False)
+        def serve_css():
+            return FileResponse(frontend_dir / "style.css")
+
+        @app.get("/app.js", include_in_schema=False)
+        def serve_js():
+            return FileResponse(frontend_dir / "app.js")
 
     return app
 

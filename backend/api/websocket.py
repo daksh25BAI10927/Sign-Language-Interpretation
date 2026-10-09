@@ -44,8 +44,26 @@ async def interpreter_status_ws(websocket: WebSocket) -> None:
     )
 
     if interpreter is None:
-        await websocket.send_json({"error": "Interpreter is not initialized"})
-        await websocket.close()
+        init_error = getattr(
+            websocket.app.state, "init_error", "Interpreter is not initialized"
+        )
+        logger.warning("WebSocket client connected while interpreter is uninitialized")
+        try:
+            while True:
+                await websocket.send_json({
+                    "running": False,
+                    "camera_connected": False,
+                    "hand_detected": False,
+                    "hand_count": 0,
+                    "handedness": "",
+                    "prediction": None,
+                    "confidence": 0.0,
+                    "error": init_error,
+                    "fps": 0.0,
+                })
+                await asyncio.sleep(1.0)
+        except (WebSocketDisconnect, Exception):
+            pass
         return
 
     logger.info("WebSocket client connected for live status updates")

@@ -47,7 +47,13 @@ def _get_interpreter(request: Request) -> Interpreter:
     """
     interpreter: Interpreter | None = getattr(request.app.state, "interpreter", None)
     if interpreter is None:
-        raise HTTPException(status_code=500, detail="Interpreter is not initialized")
+        init_error = getattr(request.app.state, "init_error", None)
+        detail = (
+            f"Interpreter is unavailable: {init_error}"
+            if init_error
+            else "Interpreter is not initialized"
+        )
+        raise HTTPException(status_code=503, detail=detail)
     return interpreter
 
 
@@ -133,7 +139,20 @@ def video_feed(request: Request):
 @router.get("/status", response_model=StatusResponse)
 def get_status(request: Request) -> StatusResponse:
     """Return the current live status of the interpreter."""
-    interpreter = _get_interpreter(request)
+    interpreter: Interpreter | None = getattr(request.app.state, "interpreter", None)
+    if interpreter is None:
+        init_error = getattr(request.app.state, "init_error", None)
+        return StatusResponse(
+            running=False,
+            camera_connected=False,
+            hand_detected=False,
+            hand_count=0,
+            handedness="",
+            prediction=None,
+            confidence=0.0,
+            error=init_error or "Interpreter is not initialized",
+            fps=0.0,
+        )
     status = interpreter.get_status()
     return StatusResponse(**status.to_dict())
 

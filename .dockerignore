@@ -1,0 +1,16 @@
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.git
+.github
+.venv
+venv
+env
+.pytest_cache
+.coverage
+htmlcov
+debug_frames
+data/landmarks_dataset.csv
+Sign_Language_Interpreter_Report_and_Viva_Guide.pdf
+PROJECT_REPORT_AND_VIVA_GUIDE.md

@@ -18,7 +18,10 @@ manually.
 
 from __future__ import annotations
 
+import ctypes
 import logging
+import os
+import sys
 import time
 import urllib.request
 from pathlib import Path
@@ -36,6 +39,45 @@ from mediapipe.tasks.python.vision import (
 from backend.hand_detection.landmarks import DetectedHand, DetectionResult, Landmark
 
 logger = logging.getLogger(__name__)
+
+
+def _preload_system_libraries() -> None:
+    """Preload Linux OpenGL / GLES libraries if extracted into project libs directory."""
+    if not sys.platform.startswith("linux"):
+        return
+
+    candidates = [
+        Path("/opt/render/project/src/libs"),
+        Path.cwd() / "libs",
+        Path(__file__).resolve().parent.parent.parent / "libs",
+    ]
+    subpaths = [
+        "usr/lib/x86_64-linux-gnu",
+        "usr/lib/aarch64-linux-gnu",
+        "usr/lib",
+        "lib/x86_64-linux-gnu",
+        "lib",
+    ]
+
+    for base in candidates:
+        if not base.exists():
+            continue
+        for sub in subpaths:
+            lib_dir = base / sub
+            if lib_dir.is_dir():
+                ld_path = os.environ.get("LD_LIBRARY_PATH", "")
+                if str(lib_dir) not in ld_path:
+                    os.environ["LD_LIBRARY_PATH"] = f"{lib_dir}:{ld_path}" if ld_path else str(lib_dir)
+
+                for libname in ("libglapi.so.0", "libglvnd.so.0", "libGLESv2.so.2", "libGL.so.1"):
+                    candidate_file = lib_dir / libname
+                    if candidate_file.exists():
+                        try:
+                            ctypes.CDLL(str(candidate_file), mode=ctypes.RTLD_GLOBAL)
+                            logger.info("Preloaded system library %s", candidate_file)
+                        except Exception as err:
+                            logger.debug("Failed preloading %s: %s", candidate_file, err)
+
 
 # Official Google-hosted MediaPipe HandLandmarker model bundle.
 _DEFAULT_MODEL_URL = (
@@ -98,6 +140,7 @@ class HandDetector:
         self._landmarker: Optional[HandLandmarker] = None
 
         try:
+            _preload_system_libraries()
             resolved_model_path = _ensure_model_available(model_asset_path)
 
             options = HandLandmarkerOptions(

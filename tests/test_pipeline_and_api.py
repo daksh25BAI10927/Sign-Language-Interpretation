@@ -125,3 +125,38 @@ def test_duplicate_start_returns_unsuccessful_response(api_client):
         assert response.json()["success"] is False
     finally:
         interpreter.stop()
+
+
+def test_status_endpoint_when_interpreter_none():
+    from backend.api.routes import router as interpreter_router
+    from fastapi import FastAPI
+
+    app = FastAPI()
+    app.include_router(interpreter_router)
+    app.state.interpreter = None
+    app.state.init_error = "Missing library libGLESv2.so.2"
+
+    with TestClient(app) as client:
+        response = client.get("/interpreter/status")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["running"] is False
+        assert "Missing library" in data["error"]
+
+        start_resp = client.post("/interpreter/start")
+        assert start_resp.status_code == 503
+
+
+def test_main_app_health_and_root():
+    from backend.main import create_app
+
+    app = create_app()
+    with TestClient(app) as client:
+        health_resp = client.get("/health")
+        assert health_resp.status_code == 200
+        assert health_resp.json()["status"] == "ok"
+
+        root_resp = client.get("/", headers={"accept": "application/json"})
+        assert root_resp.status_code == 200
+        assert root_resp.json()["status"] == "ok"
+
